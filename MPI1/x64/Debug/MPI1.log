@@ -1,0 +1,4 @@
+﻿  MPI1.cpp
+C:\Users\ockap\source\repos\openMP\MPI1\MPI1.cpp(43,23): warning C4244: аргумент: преобразование "time_t" в "unsigned int", возможна потеря данных
+C:\Users\ockap\source\repos\openMP\MPI1\MPI1.cpp(81,19): warning C4244: аргумент: преобразование "time_t" в "unsigned int", возможна потеря данных
+  MPI1.vcxproj -> C:\Users\ockap\source\repos\openMP\MPI1\x64\Debug\MPI1.exe
