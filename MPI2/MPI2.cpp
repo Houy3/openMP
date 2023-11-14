@@ -14,11 +14,12 @@ int* createArray(int length) {
 }
 
 int** createArray2(int countOfRows, int countOfColumns) {
-    int** arr = new int* [countOfRows];
+    int* arr = new int[countOfRows * countOfColumns];
+    int** arr2 = new int* [countOfRows];
     for (int i = 0; i < countOfRows; i++) {
-        arr[i] = new int[countOfColumns];
+        arr2[i] = &arr[i * countOfColumns];
     }
-    return arr;
+    return arr2;
 }
 
 int* generateArray(int length) {
@@ -58,7 +59,6 @@ void printArray2(int** arr, int countOfRows, int countOfColumns) {
     printf("\n");
 }
 
-
 int** transponate(int** arr, int countOfRows, int countOfColumns) {
     int** arrT = createArray2(countOfColumns, countOfRows);
     for (int i = 0; i < countOfRows; ++i) {
@@ -68,6 +68,15 @@ int** transponate(int** arr, int countOfRows, int countOfColumns) {
     }
     return arrT;
 }
+
+int CalculateSendCount(int size, int rank, int n) {
+    int recvCount = n / (size - 1);
+    if (rank - 1 < n % (size - 1))
+        recvCount++;
+    return recvCount;
+}
+
+
 
 void func1(int argc, char** argv) {
     int rank, size;
@@ -79,16 +88,10 @@ void func1(int argc, char** argv) {
     const int mainRank = 0;
     const int tag = 0;
 
-    const int a = 5;
-    const int b = 7;
-    const int n = 15;
+    const int a = 1;
+    const int b = 1;
+    const int n = 11;
 
-    int sizeForEach = n / (size - 1);
-    int sizeForLast = sizeForEach;
-    if (n % (size - 1) > 0) {
-        sizeForEach++;
-        sizeForLast = n % sizeForEach;
-    }
 
     if (rank == mainRank) {
         int* x = generateArray(n);
@@ -102,32 +105,19 @@ void func1(int argc, char** argv) {
 
         
         int startIndex = 0;
-        for (int i = 0; i < size; i++) {
-            if (i == mainRank)
-                continue;
-            int sizeToTransfer = sizeForEach;
-            if (i == size - 1)
-                sizeToTransfer = sizeForLast;
-
-            MPI_Send(&x[startIndex], sizeToTransfer, MPI_INT, i, tag, MPI_COMM_WORLD);
-            MPI_Send(&y[startIndex], sizeToTransfer, MPI_INT, i, tag, MPI_COMM_WORLD);
-
-            startIndex += sizeForEach;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, n);
+            MPI_Send(&x[startIndex], sendCount, MPI_INT, i, tag, MPI_COMM_WORLD);
+            MPI_Send(&y[startIndex], sendCount, MPI_INT, i, tag, MPI_COMM_WORLD);
+            startIndex += sendCount;
         }
         
-        
         startIndex = 0;
-        for (int i = 0; i < size; i++) {
-            if (i == mainRank)
-                continue;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, n);
+            MPI_Recv(&z[startIndex], sendCount, MPI_INT, i, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            int sizeToTransfer = sizeForEach;
-            if (i == size - 1)
-                sizeToTransfer = sizeForLast;
-
-            MPI_Recv(&z[startIndex], sizeToTransfer, MPI_INT, i, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            startIndex += sizeForEach;
+            startIndex += sendCount;
         }
 
         printf("z: ");
@@ -141,12 +131,12 @@ void func1(int argc, char** argv) {
         MPI_Probe(mainRank, tag, MPI_COMM_WORLD, &status);
         MPI_Get_count(&status, MPI_INT, &count);
 
-        int* x = new int[count];
-        int* y = new int[count];
-        int* z = new int[count];
+        int* x = createArray(count);
+        int* y = createArray(count);
+        int* z = createArray(count);
         
-        MPI_Recv(&x[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
-        MPI_Recv(&y[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
+        MPI_Recv(&x[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&y[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
         for (int i = 0; i < count; i++) {
             z[i] = a * x[i] + b * y[i];
@@ -167,21 +157,14 @@ void func2(int argc, char** argv) {
     const int mainRank = 0;
     const int tag = 0;
 
-    const int countOfRows = 15;
-    const int countOfColumns = 20;
-
-    int countOfSendsForEach = countOfRows / (size - 1);
-    int countOfSendsForLast = countOfSendsForEach;
-    if (countOfRows % (size - 1) > 0) {
-        countOfSendsForEach++;
-        countOfSendsForEach = countOfRows % countOfSendsForEach;
-    }
+    const int countOfRows = 5;
+    const int countOfColumns = 7;
 
     if (rank == mainRank) {
 
         int** a = generateArray2(countOfRows, countOfColumns);
         int* b = generateArray(countOfColumns);
-        int** c = createArray2(countOfRows, countOfColumns);
+        int* c = createArray(countOfRows);
 
         printf("A:\n");
         printArray2(a, countOfRows, countOfColumns);
@@ -189,56 +172,42 @@ void func2(int argc, char** argv) {
         printArray(b, countOfColumns);
 
 
-        int sended = 0;
-        int dest = 1;
-        while (sended < countOfRows) {
-            MPI_Send(&a[sended][0], countOfColumns, MPI_INT, dest, tag, MPI_COMM_WORLD);
-            MPI_Send(&b[sended], 1, MPI_INT, dest, tag, MPI_COMM_WORLD);
-            sended++;
-            dest++;
-            if (dest >= size)
-                dest = 1;
+        int startIndex = 0;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, countOfRows);
+            MPI_Send(&a[startIndex][0], sendCount * countOfColumns, MPI_INT, i, tag, MPI_COMM_WORLD);
+            MPI_Send(&b[0], countOfColumns, MPI_INT, i, tag, MPI_COMM_WORLD);
+            startIndex += sendCount;
         }
 
-        int recieved = 0;
-        dest = 1;
-        while (recieved < countOfRows) {
-            MPI_Recv(&c[recieved][0], countOfColumns, MPI_INT, dest, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            recieved++;
-            dest++;
-            if (dest >= size)
-                dest = 1;
+        startIndex = 0;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, countOfRows);
+            MPI_Recv(&c[startIndex], sendCount, MPI_INT, i, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            startIndex += sendCount;
         }
 
         printf("C:\n");
-        printArray2(c, countOfRows, countOfColumns);
+        printArray(c, countOfRows);
     }
     else {
-        MPI_Status status;
-        int count;
+        int recvCount = CalculateSendCount(size, rank, countOfRows);
 
-        int countOfSends = countOfSendsForEach;
-        if (rank = size - 1) {
-            countOfSends = countOfSendsForLast;
-        }
+        int** a = createArray2(recvCount, countOfColumns);
+        int* b = createArray(countOfColumns);
+        int* c = createArray(recvCount);
 
-        while (countOfSends > 0) {
-            MPI_Probe(mainRank, tag, MPI_COMM_WORLD, &status);
-            MPI_Get_count(&status, MPI_INT, &count);
-            int* a = createArray(count);
-            int b;
-            int* c = createArray(count);
+        MPI_Recv(&a[0][0], recvCount * countOfColumns, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&b[0], countOfColumns, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            MPI_Recv(&a[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
-            MPI_Recv(&b, 1, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
-
-            for (int i = 0; i < count; ++i) {
-                c[i] = a[i] * b;
+        for (int i = 0; i < recvCount; i++) {
+            c[i] = 0;
+            for (int j = 0; j < countOfColumns; j++) {
+                c[i] += a[i][j] * b[j];
             }
-            MPI_Send(&c[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD);
-
-            countOfSends--;
         }
+        MPI_Send(&c[0], recvCount, MPI_INT, mainRank, tag, MPI_COMM_WORLD);
+
     }
 
     MPI_Finalize();
@@ -256,13 +225,6 @@ void func3(int argc, char** argv) {
     const int countOfRows = 15; 
     const int countOfColumns = 20;
 
-    int countOfSendsForEach = countOfRows / (size - 1);
-    int countOfSendsForLast = countOfSendsForEach;
-    if (countOfRows % (size - 1) > 0) {
-        countOfSendsForEach++;
-        countOfSendsForEach = countOfRows % countOfSendsForEach;
-    }
-
     if (rank == mainRank) {
         
         int** a = generateArray2(countOfRows, countOfColumns);
@@ -275,56 +237,40 @@ void func3(int argc, char** argv) {
         printArray2(b, countOfRows, countOfColumns);
 
 
-        int sended = 0;
-        int dest = 1;
-        while (sended < countOfRows) {
-            MPI_Send(&a[sended][0], countOfColumns, MPI_INT, dest, tag, MPI_COMM_WORLD);
-            MPI_Send(&b[sended][0], countOfColumns, MPI_INT, dest, tag, MPI_COMM_WORLD);
-            sended++;
-            dest++;
-            if (dest >= size)
-                dest = 1;
+        int startIndex = 0;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, countOfRows);
+            MPI_Send(&a[startIndex][0], sendCount * countOfColumns, MPI_INT, i, tag, MPI_COMM_WORLD);
+            MPI_Send(&b[startIndex][0], sendCount * countOfColumns, MPI_INT, i, tag, MPI_COMM_WORLD);
+            startIndex += sendCount;
         }
 
-        int recieved = 0;
-        dest = 1;
-        while (recieved < countOfRows) {
-            MPI_Recv(&c[recieved][0], countOfColumns, MPI_INT, dest, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            recieved++;
-            dest++;
-            if (dest >= size)
-                dest = 1;
+        startIndex = 0;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, countOfRows);
+            MPI_Recv(&c[startIndex][0], sendCount * countOfColumns, MPI_INT, i, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            startIndex += sendCount;
         }
         
         printf("C:\n");
         printArray2(c, countOfRows, countOfColumns);
     }
     else {
-        MPI_Status status;
-        int count;
+        int recvCount = CalculateSendCount(size, rank, countOfRows);
 
-        int countOfSends = countOfSendsForEach;
-        if (rank = size - 1) {
-            countOfSends = countOfSendsForLast;
-        }
+        int** a = createArray2(recvCount, countOfColumns);
+        int** b = createArray2(recvCount, countOfColumns);
+        int** c = createArray2(recvCount, countOfColumns);
 
-        while (countOfSends > 0) {
-            MPI_Probe(mainRank, tag, MPI_COMM_WORLD, &status);
-            MPI_Get_count(&status, MPI_INT, &count);
-            int* a = createArray(count);
-            int* b = createArray(count);
-            int* c = createArray(count);
+        MPI_Recv(&a[0][0], recvCount * countOfColumns, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&b[0][0], recvCount * countOfColumns, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            MPI_Recv(&a[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
-            MPI_Recv(&b[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
-
-            for (int i = 0; i < count; ++i) {
-                c[i] = a[i] * b[i];
+        for (int i = 0; i < recvCount; i++) {
+            for (int j = 0; j < countOfColumns; j++) {
+                c[i][j] = a[i][j] * b[i][j];
             }
-            MPI_Send(&c[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD);
-
-            countOfSends--;
         }
+        MPI_Send(&c[0][0], recvCount * countOfColumns, MPI_INT, mainRank, tag, MPI_COMM_WORLD);
     }
     
     MPI_Finalize();
@@ -339,11 +285,11 @@ void func4(int argc, char** argv) {
     const int mainRank = 0;
     const int tag = 0;
 
-    const int countOfRowsA = 4;
-    const int countOfColumnsA = 2;
+    const int countOfRowsA = 10;
+    const int countOfColumnsA = 20;
 
-    const int countOfRowsB = 2;
-    const int countOfColumnsB = 3;
+    const int countOfRowsB = 20;
+    const int countOfColumnsB = 15;
 
     const int countOfRows = countOfRowsA;
     const int countOfColumns = countOfColumnsB;
@@ -354,17 +300,6 @@ void func4(int argc, char** argv) {
         exit(10);
     }
         
-    
-
-
-    int n = countOfRows * countOfColumns;
-    int countOfSendsForEach = n / (size - 1);
-    int countOfSendsForLast = countOfSendsForEach;
-    if (n % (size - 1) > 0) {
-        countOfSendsForEach++;
-        countOfSendsForEach = n % countOfSendsForEach;
-    }
-
     if (rank == mainRank) {
 
         int** a = generateArray2(countOfRowsA, countOfColumnsA);
@@ -376,72 +311,50 @@ void func4(int argc, char** argv) {
         printf("B:\n");
         printArray2(b, countOfRowsB, countOfColumnsB);
 
-        int ** bT = transponate(b, countOfRowsB, countOfColumnsB);
+        int** bT = transponate(b, countOfRowsB, countOfColumnsB);
 
         //printf("BT:\n");
         //printArray2(bT, countOfColumnsB, countOfRowsB);
-
-
-        int sendedA = 0;
-        int dest = 1;
-        while (sendedA < countOfRows) {
-            int sendedB = 0;
-            while (sendedB < countOfColumns) {
-                MPI_Send(&a[sendedA][0], countOfColumnsA, MPI_INT, dest, tag, MPI_COMM_WORLD);
-                MPI_Send(&bT[sendedB][0], countOfRowsB, MPI_INT, dest, tag, MPI_COMM_WORLD);
-                sendedB++;
-
-                dest++;
-                if (dest >= size)
-                    dest = 1;
-            }
-            sendedA++;  
+        
+        int startIndex = 0;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, countOfRows);
+            MPI_Send(&a[startIndex][0], sendCount * countOfColumnsA, MPI_INT, i, tag, MPI_COMM_WORLD);
+            MPI_Send(&bT[0][0], countOfRowsB * countOfColumnsB, MPI_INT, i, tag, MPI_COMM_WORLD);
+            startIndex += sendCount;
         }
-
-        int recievedA = 0;
-        dest = 1;
-        while (recievedA < countOfRows) {
-            int recievedB = 0;
-            while (recievedB < countOfColumns) {
-                MPI_Recv(&c[recievedA][recievedB], 1, MPI_INT, dest, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                recievedB++;
-
-                dest++;
-                if (dest >= size)
-                    dest = 1;
-            }
-            recievedA++;
+        
+        startIndex = 0;
+        for (int i = 1; i < size; i++) {
+            int sendCount = CalculateSendCount(size, i, countOfRows);
+            MPI_Recv(&c[startIndex][0], sendCount * countOfColumns, MPI_INT, i, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            startIndex += sendCount;
         }
 
         printf("C:\n");
         printArray2(c, countOfRows, countOfColumns);
     }
     else {
-        MPI_Status status;
-        int count;
+        int recvCount = CalculateSendCount(size, rank, countOfRows);
 
-        int countOfSends = countOfSendsForEach;
-        if (rank = size - 1) {
-            countOfSends = countOfSendsForLast;
-        }
-
-        while (countOfSends > 0) {
-            MPI_Probe(mainRank, tag, MPI_COMM_WORLD, &status);
-            MPI_Get_count(&status, MPI_INT, &count);
-            int* a = createArray(count);
-            int* b = createArray(count);
-            int c = 0;
-
-            MPI_Recv(&a[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
-            MPI_Recv(&b[0], count, MPI_INT, mainRank, tag, MPI_COMM_WORLD, &status);
-
-            for (int i = 0; i < count; ++i) {
-                c += a[i] * b[i];
+        int** a = createArray2(recvCount, countOfColumnsA);
+        int** bT = createArray2(countOfColumnsB, countOfRowsB);
+        int** c = createArray2(recvCount, countOfColumnsB);
+        
+        MPI_Recv(&a[0][0], recvCount * countOfColumnsA, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&bT[0][0], countOfRowsB * countOfColumnsB, MPI_INT, mainRank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        
+        for (int i = 0; i < recvCount; i++) {
+            for (int j = 0; j < countOfColumnsB; j++) {
+                c[i][j] = 0;
+                for (int k = 0; k < countOfColumnsA; k++) {
+                    c[i][j] += a[i][k] * bT[j][k];
+                }
             }
-            MPI_Send(&c, 1, MPI_INT, mainRank, tag, MPI_COMM_WORLD);
-
-            countOfSends--;
         }
+
+        MPI_Send(&c[0][0], recvCount * countOfColumnsB, MPI_INT, mainRank, tag, MPI_COMM_WORLD);
+
     }
 
     MPI_Finalize();
